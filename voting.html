@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>SpeakerScore — Голосование</title>
+<style>
+  body { font-family: "Segoe UI", sans-serif; margin:0; padding:0; color:#fff; display:flex; flex-direction:column; align-items:center;
+         background: linear-gradient(135deg, #7f5af0, #2cb67d);}
+  header {text-align:center; padding:1.5rem;}
+  h1{margin:0;font-size:2rem;}
+  .card{background: rgba(255,255,255,0.1); border-radius:20px; padding:1.5rem; margin:1rem; max-width:600px; width:90%; box-shadow:0 8px 20px rgba(0,0,0,0.2);}
+  label{display:block; margin:0.8rem 0 0.4rem; font-weight:bold;}
+  .scale{display:flex; justify-content:space-between; margin-bottom:1rem;}
+  .scale button{flex:1; margin:0 2px; padding:0.8rem; border:none; border-radius:10px; font-size:1rem; cursor:pointer; transition:0.2s;}
+  .scale button:hover{background:rgba(255,255,255,0.2);}
+  button.main{width:100%; padding:1rem; margin-top:1rem; border:none; border-radius:15px; font-size:1.2rem; background:#2cb67d; cursor:pointer; transition:0.3s;}
+  button.main:hover{background:#25a26d;}
+  #results{display:none;}
+  .result-item{margin:1rem 0;padding:1rem;border-radius:10px;background:rgba(255,255,255,0.2);}
+  .bar-container{display:flex; align-items:flex-end; gap:5px; height:150px; margin-top:10px;}
+  .bar{width:30px; background:#2cb67d; text-align:center; color:#fff; border-radius:5px 5px 0 0; display:flex; align-items:flex-end; justify-content:center; font-size:0.8rem;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🎤 SpeakerScore</h1>
+  <p>Оцени выступление и выбери лучшего спикера!</p>
+</header>
+
+<div class="card" id="voteCard">
+  <label>Номер спикера:</label>
+  <input id="speakerId" type="number" min="1" placeholder="Например: 1" style="width:100%;padding:0.5rem;border-radius:10px;border:none;">
+
+  <label>Критерий 1: Структура</label><div class="scale" data-crit="0"></div>
+  <label>Критерий 2: Польза</label><div class="scale" data-crit="1"></div>
+  <label>Критерий 3: Основная мысль</label><div class="scale" data-crit="2"></div>
+  <label>Критерий 4: Грамотность и скорость речи</label><div class="scale" data-crit="3"></div>
+  <label>Критерий 5: Тело и жесты</label><div class="scale" data-crit="4"></div>
+  <label>Критерий 6: Акценты</label><div class="scale" data-crit="5"></div>
+  <label>Критерий 7: Удержание внимания</label><div class="scale" data-crit="6"></div>
+
+  <button class="main" onclick="submitVote()">Проголосовать ✅</button>
+  <button class="main" onclick="showResults()">Показать результаты 📊</button>
+  <button class="main" id="clearVotesBtn" style="background:#f54e4e;margin-top:0.5rem;">Очистить голоса 🗑️</button>
+</div>
+
+<div class="card" id="results">
+  <h2>📊 Результаты</h2>
+  <div id="resultsTable"></div>
+</div>
+
+<script>
+const CRITERIA = 7;
+let currentVote = {};
+const API = "http://localhost:3000";
+
+document.querySelectorAll(".scale").forEach(scale=>{
+  for(let i=1;i<=4;i++){
+    const btn=document.createElement("button");
+    btn.textContent=i;
+    btn.onclick=()=>{currentVote[scale.dataset.crit]=i; [...scale.children].forEach(c=>c.style.background="none"); btn.style.background="#2cb67d";}
+    scale.appendChild(btn);
+  }
+});
+
+async function submitVote(){
+  const speaker = document.getElementById("speakerId").value;
+  if(!speaker){alert("Укажи номер спикера"); return;}
+  if(Object.keys(currentVote).length<CRITERIA){alert("Заполни все критерии"); return;}
+
+  await fetch(API+"/vote", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({speaker, scores:{...currentVote}})
+  });
+
+  alert("Спасибо за голос! 🎉");
+  currentVote={};
+  location.reload();
+}
+
+async function showResults(){
+  const res = await fetch(API+"/results");
+  const votes = await res.json();
+
+  const resultsDiv = document.getElementById("results");
+  const table = document.getElementById("resultsTable");
+  resultsDiv.style.display = "block";
+  table.innerHTML = "";
+
+  const bySpeaker = {};
+  votes.forEach(v=>{
+    if(!bySpeaker[v.speaker]) bySpeaker[v.speaker] = [];
+    bySpeaker[v.speaker].push(v.scores);
+  });
+
+  for(let sp in bySpeaker){
+    let critAvg = [];
+    for(let c=0; c<CRITERIA; c++){
+      let sum = 0;
+      let count = 0;
+      bySpeaker[sp].forEach(v=>{
+        if(v[c] !== undefined){
+          sum += Number(v[c]);
+          count++;
+        }
+      });
+      critAvg.push(count>0 ? (sum/count).toFixed(1) : 0);
+    }
+    const overall = (critAvg.reduce((a,b)=>a+parseFloat(b),0)/CRITERIA).toFixed(2);
+
+    const div = document.createElement("div");
+    div.className = "result-item";
+    div.innerHTML = `<h3>Спикер ${sp}</h3>
+                     <p>Средний балл по всем критериям: <b>${overall}</b></p>`;
+
+    const barContainer = document.createElement("div");
+    barContainer.className = "bar-container";
+    critAvg.forEach((val, idx)=>{
+      const bar = document.createElement("div");
+      bar.className = "bar";
+      bar.style.height = (val*30)+"px";
+      bar.textContent = val;
+      bar.title = `Критерий ${idx+1}`;
+      barContainer.appendChild(bar);
+    });
+    div.appendChild(barContainer);
+    table.appendChild(div);
+  }
+}
+
+document.getElementById("clearVotesBtn").addEventListener("click", async function() {
+  if(confirm("Вы действительно хотите удалить все голоса?")){
+    await fetch(API+"/votes", {method:"DELETE"});
+    location.reload();
+  }
+});
+</script>
+
+</body>
+</html>
